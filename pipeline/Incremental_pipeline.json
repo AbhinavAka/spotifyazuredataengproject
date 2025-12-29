@@ -3,6 +3,59 @@
 	"properties": {
 		"activities": [
 			{
+				"name": "Last_cdc",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "JsonSource",
+						"storeSettings": {
+							"type": "AzureBlobFSReadSettings",
+							"recursive": true,
+							"enablePartitionDiscovery": false
+						},
+						"formatSettings": {
+							"type": "JsonReadSettings"
+						}
+					},
+					"dataset": {
+						"referenceName": "Json_cdc",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": "bronze",
+							"folder": "DimUser_cdc",
+							"file_name": "cdc.json"
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "current_timestamp",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "current",
+					"value": {
+						"value": "@utcNow()   ",
+						"type": "Expression"
+					}
+				}
+			},
+			{
 				"name": "AzureSQLToDatalake",
 				"type": "Copy",
 				"dependsOn": [
@@ -68,7 +121,7 @@
 						"type": "DatasetReference",
 						"parameters": {
 							"container": "bronze",
-							"folder": "user",
+							"folder": "Users",
 							"file_name": {
 								"value": "@concat(pipeline().parameters.table,'_',variables('current'))",
 								"type": "Expression"
@@ -78,56 +131,109 @@
 				]
 			},
 			{
-				"name": "Last_cdc",
-				"type": "Lookup",
+				"name": "If Condition1",
+				"type": "IfCondition",
 				"dependsOn": [],
-				"policy": {
-					"timeout": "0.12:00:00",
-					"retry": 0,
-					"retryIntervalInSeconds": 30,
-					"secureOutput": false,
-					"secureInput": false
-				},
 				"userProperties": [],
 				"typeProperties": {
-					"source": {
-						"type": "JsonSource",
-						"storeSettings": {
-							"type": "AzureBlobFSReadSettings",
-							"recursive": true,
-							"enablePartitionDiscovery": false
+					"ifTrueActivities": [
+						{
+							"name": "max_cdc",
+							"type": "Script",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "source_sql",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "SELECT MAX(@{pipeline().parameters.cdc_col}) as cdc FROM @{pipeline().parameters.schema}.@{pipeline().parameters.table}",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
 						},
-						"formatSettings": {
-							"type": "JsonReadSettings"
+						{
+							"name": "Update_cdc",
+							"type": "Copy",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "JsonSource",
+									"additionalColumns": [
+										{
+											"name": "cdc",
+											"value": {
+												"value": "@activity('max_cdc').output.resultSets[0].rows[0].cdc",
+												"type": "Expression"
+											}
+										}
+									],
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "JsonReadSettings"
+									}
+								},
+								"sink": {
+									"type": "JsonSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "JsonWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "Json_cdc",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": "bronze",
+										"folder": "DimUser_cdc",
+										"file_name": "empty.json"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "Json_cdc",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": "bronze",
+										"folder": "DimUser_cdc",
+										"file_name": "cdc.json"
+									}
+								}
+							]
 						}
-					},
-					"dataset": {
-						"referenceName": "Json_cdc",
-						"type": "DatasetReference",
-						"parameters": {
-							"container": "bronze",
-							"folder": "DimUser_cdc",
-							"file_name": "cdc.json"
-						}
-					},
-					"firstRowOnly": false
-				}
-			},
-			{
-				"name": "current_timestamp",
-				"type": "SetVariable",
-				"dependsOn": [],
-				"policy": {
-					"secureOutput": false,
-					"secureInput": false
-				},
-				"userProperties": [],
-				"typeProperties": {
-					"variableName": "current",
-					"value": {
-						"value": "@utcNow()   ",
-						"type": "Expression"
-					}
+					]
 				}
 			}
 		],
